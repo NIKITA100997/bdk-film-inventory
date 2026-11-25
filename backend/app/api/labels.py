@@ -495,6 +495,98 @@ def _rack_label_kind(rack: Rack) -> str:
     return "rack_strip" if rack.type == RackType.STRIP else "rack_roll"
 
 
+class RackDirectPrintRequest(BaseModel):
+    printer_ip: str
+    vertical: bool = False
+
+
+class ShelfBatchDirectPrintRequest(BaseModel):
+    cells: list[dict]
+    printer_ip: str
+    vertical: bool = False
+
+
+@router.post("/racks/{rack_id}/rack-label/print-direct", dependencies=[Depends(get_current_user)])
+def print_rack_label_direct(rack_id: int, payload: RackDirectPrintRequest, db: Session = Depends(get_db)) -> dict:
+    """Тихая прямая печать этикетки стеллажа на Godex G500."""
+    from app.services.godex_ezpl import build_simple_labels_ezpl_job, is_allowed_printer_ip, send_ezpl_to_printer
+
+    if not is_allowed_printer_ip(payload.printer_ip):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Неизвестный IP-адрес принтера")
+    rack = db.get(Rack, rack_id)
+    if rack is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Стеллаж не найден")
+    warehouse = db.get(Warehouse, rack.warehouse_id)
+    template = _get_template(db, _rack_label_kind(rack))
+    rules = _rules_for_rack(db, rack.id)
+    rules_text = _rack_storage_rules_text(db, rules)
+    ezpl = build_simple_labels_ezpl_job(
+        [
+            {
+                "title": f"Стеллаж {rack.code}",
+                "qr_payload": rack.code,
+                "lines": [
+                    f"Склад: {warehouse.name if warehouse else '—'}",
+                    f"Тип: {RACK_TYPE_LABELS.get(rack.type.value, rack.type.value)}",
+                    f"Полок: {rack.shelves_count}",
+                    rules_text or "",
+                ],
+            }
+        ],
+        width_mm=template.width_mm,
+        height_mm=template.height_mm,
+        vertical=payload.vertical,
+    )
+    try:
+        send_ezpl_to_printer(payload.printer_ip, ezpl)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+    return {"ok": True, "printer_ip": payload.printer_ip, "printed": 1}
+
+
+@router.post("/racks/{rack_id}/shelf-labels/batch/print-direct", dependencies=[Depends(get_current_user)])
+def print_shelf_labels_batch_direct(
+    rack_id: int, payload: ShelfBatchDirectPrintRequest, db: Session = Depends(get_db)
+) -> dict:
+    """Тихая прямая печать этикеток полок/ячеек стеллажа на Godex G500."""
+    from app.services.godex_ezpl import build_simple_labels_ezpl_job, is_allowed_printer_ip, send_ezpl_to_printer
+
+    if not is_allowed_printer_ip(payload.printer_ip):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Неизвестный IP-адрес принтера")
+    rack = db.get(Rack, rack_id)
+    if rack is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Стеллаж не найден")
+    warehouse = db.get(Warehouse, rack.warehouse_id)
+    template = _get_template(db, "shelf")
+    rules = _rules_for_rack(db, rack.id)
+    items = []
+    for cell in payload.cells:
+        loc = str(cell.get("location_code") or "")
+        shelf = int(cell.get("shelf") or 0)
+        r_txt = _shelf_storage_rules_text(db, rules, shelf)
+        items.append(
+            {
+                "title": loc,
+                "qr_payload": loc,
+                "lines": [
+                    f"{warehouse.name if warehouse else '—'} · Полка {shelf}",
+                    r_txt or "",
+                ],
+            }
+        )
+    ezpl = build_simple_labels_ezpl_job(
+        items,
+        width_mm=template.width_mm,
+        height_mm=template.height_mm,
+        vertical=payload.vertical,
+    )
+    try:
+        send_ezpl_to_printer(payload.printer_ip, ezpl)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+    return {"ok": True, "printer_ip": payload.printer_ip, "printed": len(items)}
+
+
 @router.post("/racks/{rack_id}/rack-label", dependencies=[Depends(get_current_user)])
 def get_rack_label(rack_id: int, vertical: bool = False, page_format: PageFormat = "sticker", db: Session = Depends(get_db)) -> Response:
     """Бирка на весь стеллаж целиком (не на отдельное место хранения —

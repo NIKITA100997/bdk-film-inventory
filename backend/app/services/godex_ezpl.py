@@ -299,6 +299,92 @@ def build_units_ezpl_job(
     return build_ezpl_job(imgs, width_mm=width_mm, height_mm=height_mm)
 
 
+def render_simple_label_bitmap(
+    *,
+    title: str,
+    qr_payload: str | None,
+    lines: list[str],
+    width_mm: int = DEFAULT_WIDTH_MM,
+    height_mm: int = DEFAULT_HEIGHT_MM,
+    vertical: bool = False,
+) -> Image.Image:
+    """Универсальный рендер этикетки (стеллаж, полка, ПФ-партия) для Godex G500 (203 DPI)."""
+    w_px = max(8, int(width_mm * DOTS_PER_MM))
+    h_px = max(8, int(height_mm * DOTS_PER_MM))
+    canvas_w, canvas_h = (h_px, w_px) if vertical else (w_px, h_px)
+
+    img = Image.new("L", (canvas_w, canvas_h), 255)
+    draw = ImageDraw.Draw(img)
+    pad = 12
+    x_cursor = pad
+
+    if qr_payload and canvas_w >= canvas_h:
+        qr_box = min(canvas_h - 24, max(112, int(min(canvas_w, canvas_h) * 0.82)))
+        qr = qrcode.QRCode(border=1, box_size=1)
+        qr.add_data(qr_payload)
+        qr.make(fit=True)
+        qr_img = qr.make_image(fill_color="black", back_color="white").convert("L")
+        qr_img = qr_img.resize((qr_box, qr_box), Image.Resampling.NEAREST)
+        img.paste(qr_img, (x_cursor, (canvas_h - qr_box) // 2))
+        x_cursor += qr_box + 16
+
+    text_max_w = max(60, canvas_w - x_cursor - pad)
+    avail_h = max(40, canvas_h - pad * 2)
+
+    all_rows = [(title, True)] + [(ln, False) for ln in lines if ln]
+    chosen: list[tuple[str, ImageFont.ImageFont, int]] = []
+    chosen_h = 0
+
+    for step in range(18, 6, -1):
+        scale = step / 10.0
+        layout: list[tuple[str, ImageFont.ImageFont, int]] = []
+        total_h = 0
+        for txt, is_title in all_rows:
+            sz = max(16, int((38 if is_title else 24) * scale))
+            fnt = _load_font(sz, bold=is_title, serif=is_title)
+            for part in _wrap_text(draw, txt, fnt, text_max_w):
+                step_h = int(sz * 1.15)
+                layout.append((part, fnt, step_h))
+                total_h += step_h
+        chosen = layout
+        chosen_h = total_h
+        if total_h <= avail_h:
+            break
+
+    y_cursor = pad + max(0, (avail_h - chosen_h) // 2)
+    for part, fnt, step_h in chosen:
+        if y_cursor + step_h > canvas_h - 4:
+            break
+        draw.text((x_cursor, y_cursor), part, fill=0, font=fnt)
+        y_cursor += step_h
+
+    if vertical:
+        img = img.rotate(90, expand=True)
+    return img
+
+
+def build_simple_labels_ezpl_job(
+    items: list[dict],
+    *,
+    width_mm: int = DEFAULT_WIDTH_MM,
+    height_mm: int = DEFAULT_HEIGHT_MM,
+    vertical: bool = False,
+) -> bytes:
+    """Генерирует EZPL-задание для списка простых этикеток ({title, qr_payload, lines})."""
+    imgs = [
+        render_simple_label_bitmap(
+            title=it["title"],
+            qr_payload=it.get("qr_payload"),
+            lines=it.get("lines", []),
+            width_mm=width_mm,
+            height_mm=height_mm,
+            vertical=vertical,
+        )
+        for it in items
+    ]
+    return build_ezpl_job(imgs, width_mm=width_mm, height_mm=height_mm)
+
+
 _GODEX_STATUS_MESSAGES: dict[str, str] = {
     "00": "Готов к печати",
     "01": "Закончилась лента (этикетки)",

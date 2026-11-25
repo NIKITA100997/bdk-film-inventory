@@ -1,5 +1,6 @@
 import { apiClient } from "./client";
-import { isMobileDevice, isVerticalPrint, printPdfBlob, printHtmlDoc } from "../utils/printLabel";
+import { message } from "antd";
+import { getSelectedPrinterIp, isMobileDevice, isVerticalPrint, printErrorMessage, printPdfBlob, printHtmlDoc } from "../utils/printLabel";
 
 export type FieldSize = "sm" | "md" | "lg" | "huge";
 export type LabelKind = "roll" | "strip" | "cutting_issue" | "rack_roll" | "rack_strip" | "shelf" | "pf_unit" | "pf_rack" | "pf_shelf";
@@ -71,7 +72,17 @@ export interface ShelfLabelCell {
 
 export function printShelfLabelsBatch(rackId: number, cells: ShelfLabelCell[]): void {
   if (cells.length === 0) return;
-  const params = { vertical: isVerticalPrint() };
+  const printerIp = getSelectedPrinterIp();
+  const vertical = isVerticalPrint();
+  if (printerIp) {
+    message.loading({ content: `Печать ${cells.length} эт. полок на Godex G500…`, key: "print-shelf", duration: 0 });
+    apiClient
+      .post(`/racks/${rackId}/shelf-labels/batch/print-direct`, { cells, printer_ip: printerIp, vertical })
+      .then(() => message.success({ content: `Напечатано ${cells.length} эт. на Godex G500`, key: "print-shelf" }))
+      .catch((e) => message.error({ content: printErrorMessage(e), key: "print-shelf" }));
+    return;
+  }
+  const params = { vertical };
   if (isMobileDevice()) {
     apiClient.post(`/racks/${rackId}/shelf-labels/batch/html`, { cells }, { params, responseType: "text" }).then(({ data }) => {
       printHtmlDoc(data as string);
@@ -86,7 +97,17 @@ export function printShelfLabelsBatch(rackId: number, cells: ShelfLabelCell[]): 
 // Бирка на весь стеллаж целиком — отдельный макет (kind="rack_roll"/"rack_strip") от бирок
 // на места хранения выше. Печатается по одной, без списка ячеек.
 export function printRackLabel(rackId: number): void {
-  const params = { vertical: isVerticalPrint() };
+  const printerIp = getSelectedPrinterIp();
+  const vertical = isVerticalPrint();
+  if (printerIp) {
+    message.loading({ content: "Отправка этикетки стеллажа на Godex G500…", key: "print-rack", duration: 0 });
+    apiClient
+      .post(`/racks/${rackId}/rack-label/print-direct`, { printer_ip: printerIp, vertical })
+      .then(() => message.success({ content: "Напечатано на Godex G500", key: "print-rack" }))
+      .catch((e) => message.error({ content: printErrorMessage(e), key: "print-rack" }));
+    return;
+  }
+  const params = { vertical };
   if (isMobileDevice()) {
     apiClient.post(`/racks/${rackId}/rack-label/html`, null, { params, responseType: "text" }).then(({ data }) => {
       printHtmlDoc(data as string);
