@@ -549,6 +549,7 @@ export interface UnitEvent {
   from_cell: string | null;
   to_cell: string | null;
   quantity_delta_m: number;
+  comment?: string | null;
   /** сумма движения, ₽ (08.10) */
   amount_rub?: number | null;
   write_off_reason: string | null;

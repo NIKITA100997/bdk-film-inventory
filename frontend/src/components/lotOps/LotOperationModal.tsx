@@ -8,7 +8,7 @@ import LocationSelect from "../LocationSelect";
 import { toOccurredAtIso } from "../../utils/occurredAt";
 import { apiErrorMessage } from "../../utils/apiError";
 import { listWriteOffReasons } from "../../api/writeOffReasons";
-import { adjustUnit, deleteUnit, getReturnPreview, getUnit, issueUnitDirect, placeUnit, reassignUnitSku, returnUnit, skuLabel, writeOffUnit, restoreWriteOffUnit, type MaterialUnit } from "../../api/units";
+import { adjustUnit, deleteUnit, getReturnPreview, getUnit, getUnitEvents, issueUnitDirect, placeUnit, reassignUnitSku, returnUnit, skuLabel, writeOffUnit, restoreWriteOffUnit, type MaterialUnit } from "../../api/units";
 import {
   adjustPartUnit,
   deletePartUnit,
@@ -131,6 +131,14 @@ export default function LotOperationModal({
     if (op === "move" && film && lot.sku_id != null && !lot.location_code) suggest.mutate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const unitIdForEvents = (lot as { id?: number; lot_id?: number }).id ?? (lot as { lot_id?: number }).lot_id ?? 0;
+  const eventsQuery = useQuery({
+    queryKey: ["unit-events", unitIdForEvents],
+    queryFn: () => getUnitEvents(unitIdForEvents),
+    enabled: op === "return" && film && unitIdForEvents > 0,
+  });
+  const reportEvents = (eventsQuery.data ?? []).filter((e) => e.event_type === "PRODUCTION_REPORT");
 
   const run = useMutation({
     mutationFn: async (v: Values) => {
@@ -260,6 +268,22 @@ export default function LotOperationModal({
               )}
             </Space.Compact>
           </Form.Item>
+        )}
+
+        {op === "return" && film && reportEvents.length > 0 && (
+          <div style={{ marginBottom: 12, padding: "8px 10px", background: "#fffbe6", border: "1px solid #ffe58f", borderRadius: 8, fontSize: 12 }}>
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>Расход по отчётам ({reportEvents.length}):</div>
+            <div style={{ maxHeight: 130, overflowY: "auto", display: "flex", flexDirection: "column", gap: 3 }}>
+              {reportEvents.map((e) => (
+                <div key={e.event_id}>
+                  <span style={{ color: "var(--bdk-ink-2)" }}>
+                    {new Date(e.timestamp).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}:
+                  </span>{" "}
+                  {e.comment ?? `Расход ${Math.abs(e.quantity_delta_m)} м`}
+                </div>
+              ))}
+            </div>
+          </div>
         )}
 
         {op === "return" && (
