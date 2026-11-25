@@ -18,8 +18,8 @@ class ReceiveRequest(BaseModel):
     color: str
     thickness: float
     manufacturer: str = "Не указан"
-    width_mm: float = Field(gt=0)
-    length_m: float = Field(gt=0)
+    width_mm: float = Field(gt=0, le=5000)
+    length_m: float = Field(gt=0, le=50000)
     quantity: int = Field(gt=0, le=200)
     location_code: str | None = None
     # склад приёмки (19.10): без ячейки рулон встаёт на место по умолчанию этого склада
@@ -184,8 +184,8 @@ class IssueRequest(BaseModel):
     color: str
     thickness: float
     manufacturer: str
-    width_mm: float = Field(gt=0)
-    length_m: float = Field(gt=0)
+    width_mm: float = Field(gt=0, le=5000)
+    length_m: float = Field(gt=0, le=50000)
     area: str
     production_task_line_id: int | None = None
     occurred_at: OccurredAt = None
@@ -385,7 +385,7 @@ class BatchCuttingPlanResponse(BaseModel):
 
 
 class CutRequest(BaseModel):
-    cut_length_m: float = Field(gt=0)
+    cut_length_m: float = Field(gt=0, le=50000)
     remainder_location: str | None = None
     occurred_at: OccurredAt = None
 
@@ -509,7 +509,7 @@ class CuttingOperationOut(BaseModel):
 
 
 class ReturnRequest(BaseModel):
-    actual_length_m: float = Field(ge=0)
+    actual_length_m: float = Field(ge=0, le=50000)
     occurred_at: OccurredAt = None
     # Раздел про сверку рулонов на окутке — "вернуть и сразу списать остаток"
     # одним действием вместо два похода в карточку единицы (возврат, потом
@@ -529,7 +529,7 @@ class UnitAdjustRequest(BaseModel):
     но ручной override остаётся нужен на редкие случаи, которые она не
     предвидит. None — не трогать текущее значение."""
 
-    actual_length_m: float = Field(ge=0)
+    actual_length_m: float = Field(ge=0, le=50000)
     reason: str
     note: str | None = None
     occurred_at: OccurredAt = None

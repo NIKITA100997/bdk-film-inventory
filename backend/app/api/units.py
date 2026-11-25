@@ -392,12 +392,15 @@ def reconciliation_rows(
         )
         report_aggs = {uid: (cnt, float(good), float(defect)) for uid, cnt, good, defect in agg_rows}
 
+    color_ids = {u.production_task_line.color_id for u in units if u.production_task_line and u.production_task_line.color_id}
+    colors_map = {c.id: c for c in db.query(Color).filter(Color.id.in_(color_ids)).all()} if color_ids else {}
+
     out: list[ReconciliationRowOut] = []
     for u in units:
         line = u.production_task_line
         task_label = None
         if line is not None:
-            color = db.get(Color, line.color_id) if line.color_id else None
+            color = colors_map.get(line.color_id) if line.color_id else None
             order_ref = (
                 f"№{line.task.external_order_ref}" if line.task.external_order_ref
                 else (line.task.name or f"#{line.task.id}")

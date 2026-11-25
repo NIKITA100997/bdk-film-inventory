@@ -30,6 +30,32 @@ class CuttingPlan:
     waste_mm: float
 
 
+_EXACT_LIMIT = 16
+
+
+def _greedy_subset(widths: list[float], donor_width: float, min_useful_width_mm: float) -> tuple[list[int], float] | None:
+    """Быстрая эвристика для больших пачек (>16 ширин), где полный перебор комбинаций слишком дорог."""
+    order = sorted(range(len(widths)), key=lambda i: -widths[i])
+    chosen: list[int] = []
+    total = 0.0
+    for idx in order:
+        w = widths[idx]
+        if total + w <= donor_width + 1e-9:
+            chosen.append(idx)
+            total += w
+    if not chosen:
+        return None
+    leftover = donor_width - total
+    # Если остался бесполезный обрезок, пробуем убрать последний добавленный элемент, пока остаток не станет допустимым
+    while chosen and leftover > 1e-9 and leftover < min_useful_width_mm:
+        removed = chosen.pop()
+        total -= widths[removed]
+        leftover = donor_width - total
+    if not chosen:
+        return None
+    return chosen, max(leftover, 0.0)
+
+
 def _best_subset(widths: list[float], donor_width: float, min_useful_width_mm: float) -> tuple[list[int], float] | None:
     """Наибольшее по числу покрытых потребностей подмножество (при
     равенстве — минимальный остаток) индексов needed_widths, которое
@@ -38,6 +64,8 @@ def _best_subset(widths: list[float], donor_width: float, min_useful_width_mm: f
     порога полезной ширины — такое сочетание не предлагаем). None, если
     даже самая узкая потребность не помещается в этого донора."""
     n = len(widths)
+    if n > _EXACT_LIMIT:
+        return _greedy_subset(widths, donor_width, min_useful_width_mm)
     for size in range(n, 0, -1):
         found: list[tuple[list[int], float]] = []
         for combo in combinations(range(n), size):

@@ -40,9 +40,9 @@ class ProductModelUpdate(BaseModel):
 
 class ProductModelPartCreate(BaseModel):
     area: str
-    qty_per_unit: float = Field(gt=0)
-    width_mm: float = Field(gt=0)
-    length_m: float = Field(gt=0)
+    qty_per_unit: float = Field(gt=0, le=100000)
+    width_mm: float = Field(gt=0, le=5000)
+    length_m: float = Field(gt=0, le=50000)
     strip_width_mm: float | None = None
     part_name: str | None = None
 
@@ -71,9 +71,9 @@ class ProductionTaskLineManualCreate(BaseModel):
     material: str
     color: str
     thickness: float
-    quantity_pieces: float = Field(gt=0)
-    width_mm: float = Field(gt=0)
-    length_m: float = Field(gt=0)
+    quantity_pieces: float = Field(gt=0, le=100000)
+    width_mm: float = Field(gt=0, le=5000)
+    length_m: float = Field(gt=0, le=50000)
     strip_width_mm: float | None = None
     part_name: str | None = None
 
@@ -221,8 +221,8 @@ class ProductionTaskLineReportCreate(BaseModel):
     # партия п/ф укутывалась; необязательно даже для этого участка (не у
     # каждой детали ещё настроены этапы, см. create_task_line_report).
     part_unit_id: int | None = None
-    good_pieces: float = Field(ge=0)
-    defect_pieces: float = Field(ge=0)
+    good_pieces: float = Field(ge=0, le=100000)
+    defect_pieces: float = Field(ge=0, le=100000)
     defect_reason: str | None = None
     # Раздел про переработку брака — по умолчанию списывается насовсем
     # ("spisat"), как раньше; "pererabotka" резервирует брак (статус

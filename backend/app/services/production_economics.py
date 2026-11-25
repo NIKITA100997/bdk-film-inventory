@@ -46,7 +46,7 @@ def _period(date_from: date, date_to: date):
     return start, end
 
 
-def _last_prices(db: Session, at: date | None = None) -> dict[tuple[int, int, int], float]:
+def _last_prices(db: Session, at: date | None = None, material_ids: set[int] | None = None) -> dict[tuple[int, int, int], float]:
     """Цена м² плёнки в рублях (материал, цвет, толщина): из цен позиций
     (вручную, 1С, УПД — services/prices, по общему курсу; у нескольких
     производителей — самая свежая), иначе — последняя из заявок поставщику."""
@@ -54,15 +54,20 @@ def _last_prices(db: Session, at: date | None = None) -> dict[tuple[int, int, in
     from app.services.prices import current_price, film_rub_per_m2, rates
 
     out: dict[tuple[int, int, int], float] = {}
-    for r in (
-        db.query(PurchaseRequest)
-        .filter(PurchaseRequest.price_per_m2.isnot(None), PurchaseRequest.material_id.isnot(None))
-        .order_by(PurchaseRequest.created_at.asc())
-    ):
+    pr_q = db.query(PurchaseRequest).filter(
+        PurchaseRequest.price_per_m2.isnot(None),
+        PurchaseRequest.material_id.isnot(None),
+    )
+    if material_ids is not None:
+        pr_q = pr_q.filter(PurchaseRequest.material_id.in_(material_ids))
+    for r in pr_q.order_by(PurchaseRequest.created_at.asc()):
         out[(r.material_id, r.color_id, r.thickness_id)] = float(r.price_per_m2)
     rate_map = rates(db)
     fresh: dict[tuple[int, int, int], tuple] = {}
-    for sku in db.query(MaterialSku).filter(MaterialSku.item_id.isnot(None)):
+    sku_q = db.query(MaterialSku).filter(MaterialSku.item_id.isnot(None))
+    if material_ids is not None:
+        sku_q = sku_q.filter(MaterialSku.material_id.in_(material_ids))
+    for sku in sku_q:
         p = current_price(db, sku.item_id, at)
         if p is None:
             continue
@@ -144,7 +149,8 @@ def film_plan_fact(db: Session, date_from: date, date_to: date, area: str | None
                     agg[lid]["fact"] += used * part / total_w
                     if still:
                         agg[lid]["estimated"] = True
-    prices = _last_prices(db, date_to)
+    needed_material_ids = {ln.material_id for ln, _ in lines.values() if ln.material_id is not None}
+    prices = _last_prices(db, date_to, material_ids=needed_material_ids)
     mats = {m.id: m.name for m in db.query(Material)}
     cols = {c.id: c.name for c in db.query(Color)}
     ths = {x.id: float(x.value_mm) for x in db.query(Thickness)}
