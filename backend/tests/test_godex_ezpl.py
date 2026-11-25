@@ -19,7 +19,7 @@ def test_ezpl_test_bitmap_and_job_format():
     assert img.size == (800, 320)
     payload = build_ezpl_job([img], width_mm=100, height_mm=40)
     assert payload.startswith(b"^Q40,3\r\n^W100\r\n")
-    assert b"^L\r\nGW0,0,100,320," in payload
+    assert b"^L\r\nQ0,0,100,320\r\n" in payload
     assert payload.endswith(b"\r\nE\r\n")
 
 
@@ -42,7 +42,7 @@ def test_ezpl_unit_label_rendering():
     )
     ezpl = build_units_ezpl_job([data], fields=DEFAULT_FIELDS, width_mm=100, height_mm=40, vertical=False)
     assert b"^Q40,3\r\n^W100\r\n" in ezpl
-    assert b"GW0,0,100,320," in ezpl
+    assert b"Q0,0,100,320\r\n" in ezpl
 
 
 def test_network_printers_allowlist():

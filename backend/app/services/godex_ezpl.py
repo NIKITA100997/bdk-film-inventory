@@ -195,7 +195,7 @@ def image_to_ezpl_block(img: Image.Image, *, x: int = 0, y: int = 0) -> bytes:
     width_bytes = w // 8
     raw = bw.tobytes()
 
-    header = f"^L\r\nGW{x},{y},{width_bytes},{h},".encode("ascii")
+    header = f"^L\r\nQ{x},{y},{width_bytes},{h}\r\n".encode("ascii")
     return header + raw + b"\r\nE\r\n"
 
 
@@ -215,14 +215,9 @@ def build_ezpl_job(
         f"^H{darkness}\r\n"
         f"^P1\r\n"
         f"^S{speed}\r\n"
-        f"^AT\r\n"
         f"^C1\r\n"
         f"^R0\r\n"
         f"~Q+0\r\n"
-        f"^O0\r\n"
-        f"^D0\r\n"
-        f"^E12\r\n"
-        f"~R200\r\n"
     ).encode("ascii")
     blocks = [image_to_ezpl_block(im) for im in images]
     if not blocks:
