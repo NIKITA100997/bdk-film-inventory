@@ -661,6 +661,8 @@ export interface ReconciliationRow {
   reports_count: number;
   good_pieces_sum: number;
   defect_pieces_sum: number;
+  history_reports_count?: number;
+  history_good_pieces_sum?: number;
 }
 
 export async function getReconciliation(area?: string, onlyAttention?: boolean): Promise<ReconciliationRow[]> {

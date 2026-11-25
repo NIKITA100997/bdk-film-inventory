@@ -239,7 +239,13 @@ export default function RollReconciliationTab() {
             key: "reports",
             render: (_, r) =>
               r.task_line_id == null ? (
-                "—"
+                (r.history_reports_count ?? 0) > 0 ? (
+                  <Tag color="orange" style={{ margin: 0, whiteSpace: "normal" }}>
+                    Были отчёты: {r.history_good_pieces_sum ?? 0} шт ({r.history_reports_count}) — не возвращён
+                  </Tag>
+                ) : (
+                  "—"
+                )
               ) : r.reports_count === 0 ? (
                 <Typography.Text type="danger" style={{ whiteSpace: "nowrap" }}>
                   нет отчётов

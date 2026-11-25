@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { Button, Tooltip } from "antd";
 import { QrcodeOutlined } from "@ant-design/icons";
-import QrScanModal from "./QrScanModal";
+
+const QrScanModal = lazy(() => import("./QrScanModal"));
 
 interface QrScanButtonProps {
   onScan: (code: string) => void;
@@ -39,7 +40,11 @@ export default function QrScanButton({
           {buttonText}
         </Button>
       </Tooltip>
-      <QrScanModal open={open} onClose={() => setOpen(false)} onScan={onScan} />
+      {open && (
+        <Suspense fallback={null}>
+          <QrScanModal open={open} onClose={() => setOpen(false)} onScan={onScan} />
+        </Suspense>
+      )}
     </>
   );
 }

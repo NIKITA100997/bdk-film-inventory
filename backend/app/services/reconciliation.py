@@ -77,6 +77,27 @@ def list_reconciliation_rows(
         )
         report_aggs = {uid: (cnt, float(good), float(defect)) for uid, cnt, good, defect in agg_rows}
 
+        hist_rows = (
+            db.query(
+                ProductionTaskLineReport.material_unit_id,
+                func.count(ProductionTaskLineReport.id),
+                func.coalesce(func.sum(ProductionTaskLineReport.good_pieces), 0),
+            )
+            .outerjoin(last_issue_subq, last_issue_subq.c.event_unit_id == ProductionTaskLineReport.material_unit_id)
+            .filter(
+                ProductionTaskLineReport.material_unit_id.in_(unit_ids),
+                or_(
+                    last_issue_subq.c.last_issued_at.is_(None),
+                    ProductionTaskLineReport.reported_at >= last_issue_subq.c.last_issued_at,
+                ),
+            )
+            .group_by(ProductionTaskLineReport.material_unit_id)
+            .all()
+        )
+        hist_aggs = {uid: (cnt, float(good)) for uid, cnt, good in hist_rows}
+    else:
+        hist_aggs = {}
+
     color_ids = {u.production_task_line.color_id for u in units if u.production_task_line and u.production_task_line.color_id}
     colors_map = {c.id: c for c in db.query(Color).filter(Color.id.in_(color_ids)).all()} if color_ids else {}
 
@@ -92,6 +113,7 @@ def list_reconciliation_rows(
             )
             task_label = f"{order_ref} — {line.part_name or ''} {color.name if color else ''}".strip()
         cnt, good, defect = report_aggs.get(u.id, (0, 0.0, 0.0))
+        h_cnt, h_good = hist_aggs.get(u.id, (0, 0.0))
         if only_attention:
             needs_attention = (line is None and not u.legacy_task_note) or (line is not None and cnt == 0)
             if not needs_attention:
@@ -113,6 +135,8 @@ def list_reconciliation_rows(
                 reports_count=cnt,
                 good_pieces_sum=good,
                 defect_pieces_sum=defect,
+                history_reports_count=h_cnt,
+                history_good_pieces_sum=h_good,
             )
         )
     return out
