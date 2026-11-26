@@ -8,7 +8,7 @@ import LocationSelect from "../LocationSelect";
 import { toOccurredAtIso } from "../../utils/occurredAt";
 import { apiErrorMessage } from "../../utils/apiError";
 import { listWriteOffReasons } from "../../api/writeOffReasons";
-import { adjustUnit, deleteUnit, getReturnPreview, getUnit, getUnitEvents, issueUnitDirect, placeUnit, reassignUnitSku, returnUnit, skuLabel, writeOffUnit, restoreWriteOffUnit, type MaterialUnit } from "../../api/units";
+import { adjustUnit, deleteUnit, getReturnPreview, getUnit, getUnitEvents, issueUnitDirect, placeUnit, printLabel, reassignUnitSku, returnUnit, skuLabel, writeOffUnit, restoreWriteOffUnit, type MaterialUnit } from "../../api/units";
 import {
   adjustPartUnit,
   deletePartUnit,
@@ -218,8 +218,12 @@ export default function LotOperationModal({
             occurred_at: at,
           });
     },
-    onSuccess: (updated) => {
+    onSuccess: (updated, vars) => {
       message.success(`${lotTitle(lot)} — ${OP_DONE[op]}`);
+      const v = vars as { print_label?: boolean; write_off?: boolean; qty?: number };
+      if (op === "return" && film && v.print_label && !v.write_off && (v.qty ?? 0) > 0) {
+        printLabel(lot.lot_id);
+      }
       // остатки, движения и карточки обоих видов
       for (const key of ["unified-lots", "unified-movements", "materials-explorer", "units", "unit", "part-units", "part-unit", "part-stock", "material-card", "storage", "part-rack-occupancy", "rack-occupancy", "storage-places", "lot-full", "return-preview"])
         qc.invalidateQueries({ queryKey: [key] });
@@ -253,7 +257,7 @@ export default function LotOperationModal({
           {lot.location_code ? ` · ${lot.location_code}` : ""}
         </Descriptions.Item>
       </Descriptions>
-      <Form form={form} layout="vertical" initialValues={{ qty: initialQty, location_code: lot.location_code ?? undefined }} onFinish={(v) => run.mutate(v)}>
+      <Form form={form} layout="vertical" initialValues={{ qty: initialQty, location_code: lot.location_code ?? undefined, print_label: true }} onFinish={(v) => run.mutate(v)}>
         {op === "move" && (
           <Form.Item label="Адрес ячейки" required>
             <Space.Compact style={{ width: "100%" }}>
@@ -313,6 +317,9 @@ export default function LotOperationModal({
           <>
             <Form.Item name="write_off" valuePropName="checked" style={{ marginTop: -8 }}>
               <Checkbox>Рулон израсходован — остаток сразу списать</Checkbox>
+            </Form.Item>
+            <Form.Item name="print_label" valuePropName="checked" style={{ marginTop: -12 }}>
+              <Checkbox>Распечатать этикетку после возврата</Checkbox>
             </Form.Item>
             {returnWriteOff && (
               <>
