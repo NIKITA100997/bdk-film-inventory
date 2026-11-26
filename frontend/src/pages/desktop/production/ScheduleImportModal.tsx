@@ -280,26 +280,13 @@ export default function ScheduleImportModal({
               return false;
             }}
           >
-            <Button loading={readFile.isPending} title="Выгрузка счёта из 1С в Excel: колонки «Номенклатура» и «Количество», имя файла — номер счёта">
-              Загрузить файл счёта 1С…
+            <Button loading={readFile.isPending} title="Загрузка файла Excel (.xls / .xlsx)">
+              {launchOnly ? "Загрузить файл Excel…" : "Загрузить файл счёта 1С…"}
             </Button>
           </Upload>
-          <Typography.Text type="secondary">или счёт целиком:</Typography.Text>
-          <Input
-            style={{ width: 180 }}
-            placeholder="№ счёта"
-            value={invoiceNo}
-            onChange={(e) => {
-              setInvoiceNo(e.target.value);
-              setPreview(null);
-            }}
-          />
-          {forCustomer && (
-            <DatePicker placeholder="Дата счёта" format="DD.MM.YYYY" value={invoiceDate} onChange={setInvoiceDate} />
-          )}
-          {isManager && !forCustomer && (
+          {launchOnly ? (
             <DatePicker
-              placeholder="Дата отгрузки"
+              placeholder="Дата готовности"
               format="DD.MM.YYYY"
               value={shipDate}
               onChange={(v) => {
@@ -307,17 +294,44 @@ export default function ScheduleImportModal({
                 setPreview(null);
               }}
             />
+          ) : (
+            <>
+              <Typography.Text type="secondary">или счёт целиком:</Typography.Text>
+              <Input
+                style={{ width: 180 }}
+                placeholder="№ счёта"
+                value={invoiceNo}
+                onChange={(e) => {
+                  setInvoiceNo(e.target.value);
+                  setPreview(null);
+                }}
+              />
+              {forCustomer && (
+                <DatePicker placeholder="Дата счёта" format="DD.MM.YYYY" value={invoiceDate} onChange={setInvoiceDate} />
+              )}
+              {isManager && !forCustomer && (
+                <DatePicker
+                  placeholder="Дата отгрузки"
+                  format="DD.MM.YYYY"
+                  value={shipDate}
+                  onChange={(v) => {
+                    setShipDate(v);
+                    setPreview(null);
+                  }}
+                />
+              )}
+              <DatePicker.RangePicker
+                placeholder={["Вилка отгрузки: с", "по"]}
+                format="DD.MM.YYYY"
+                allowEmpty={[true, false]}
+                value={shipWindow}
+                onChange={(v) => setShipWindow([v?.[0] ?? null, v?.[1] ?? null])}
+              />
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                строки вида «В-15 (м9 кромка 4х) 600х2000 - Полипропилен Аляска …   30» — серия, размер и цвет берутся из наименования
+              </Typography.Text>
+            </>
           )}
-          <DatePicker.RangePicker
-            placeholder={["Вилка отгрузки: с", "по"]}
-            format="DD.MM.YYYY"
-            allowEmpty={[true, false]}
-            value={shipWindow}
-            onChange={(v) => setShipWindow([v?.[0] ?? null, v?.[1] ?? null])}
-          />
-          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            строки вида «В-15 (м9 кромка 4х) 600х2000 - Полипропилен Аляска …   30» — серия, размер и цвет берутся из наименования
-          </Typography.Text>
         </Space>
         <Input.TextArea
           rows={6}
