@@ -420,6 +420,22 @@ export default function ScheduleImportModal({
                     ? `Есть замечания: ${bad} — поправьте, заказы не создаются`
                     : `Строк с ошибками: ${bad} — поправьте в графике или настройке типа, заказ не создаётся`
                 }
+                description={
+                  <div style={{ maxHeight: 140, overflowY: "auto", fontSize: 12, marginTop: 4 }}>
+                    {preview.parse_errors.map((err, i) => (
+                      <div key={`pe-${i}`}>• {err}</div>
+                    ))}
+                    {preview.rows
+                      .map((r, idx) => ({ r, idx }))
+                      .filter(({ r }) => r.errors.length > 0)
+                      .map(({ r, idx }) => (
+                        <div key={`re-${idx}`}>
+                          • <b>Строка {idx + 1}</b>
+                          {r.item_name ? ` (${r.item_name})` : ""}: {r.errors.join("; ")}
+                        </div>
+                      ))}
+                  </div>
+                }
               />
             ) : (
               <Alert
