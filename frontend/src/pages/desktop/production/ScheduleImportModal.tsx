@@ -50,6 +50,7 @@ export default function ScheduleImportModal({
   onClose,
   onCreated,
   target = "production",
+  launchOnly = false,
   onCustomerCreated,
   fromDeal,
 }: {
@@ -57,6 +58,8 @@ export default function ScheduleImportModal({
   onCreated?: (o: ProductionOrder) => void;
   /** customer — заказы клиентов (13.10): по одному на счёт, без запуска. */
   target?: "production" | "customer";
+  /** launchOnly — упрощённый производственный запуск без полей счёта/клиента/вилки отгрузки. */
+  launchOnly?: boolean;
   onCustomerCreated?: (ids: number[]) => void;
   /** заказ из сделки Битрикс24 (19.10): счёт и клиент подставлены, сделка привяжется */
   fromDeal?: {
@@ -197,7 +200,13 @@ export default function ScheduleImportModal({
     <Modal
       open
       width={1100}
-      title={forCustomer ? "Заказы клиентов из счёта 1С или графика" : "Заказ из графика запуска или счёта 1С"}
+      title={
+        forCustomer
+          ? "Заказы клиентов из счёта 1С или графика"
+          : launchOnly
+            ? "Запуск в производство из файла / буфера"
+            : "Заказ из графика запуска или счёта 1С"
+      }
       onCancel={onClose}
       footer={
         <Space>
@@ -254,7 +263,12 @@ export default function ScheduleImportModal({
           {forCustomer ? (
             <Input style={{ width: 360 }} placeholder="Клиент (как в счёте 1С)" value={customer} onChange={(e) => setCustomer(e.target.value)} />
           ) : (
-            <Input style={{ width: 360 }} placeholder="Название заказа (по умолчанию — по дате отгрузки)" value={name} onChange={(e) => setName(e.target.value)} />
+            <Input
+              style={{ width: 360 }}
+              placeholder={launchOnly ? "Название запуска (например, Запуск 26.11)" : "Название заказа (по умолчанию — по дате отгрузки)"}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
           )}
         </Space>
         <Space wrap>

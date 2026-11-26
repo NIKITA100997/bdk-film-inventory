@@ -461,6 +461,7 @@ export default function AreasView({
 
       {importOpen && (
         <ScheduleImportModal
+          launchOnly
           onClose={() => setImportOpen(false)}
           onCreated={(order) => {
             setImportOpen(false);
