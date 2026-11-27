@@ -1339,7 +1339,7 @@ class AssembleRequest(BaseModel):
 def assemble_preview(
     order_id: int,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(manage_customer_orders),
 ):
     """Предпросмотр сбора заказа: показывает дефицит по строкам счёта и доступные
     одинаковые позиции из других заказов/запусков для перераспределения."""
