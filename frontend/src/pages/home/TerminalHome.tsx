@@ -54,9 +54,9 @@ const TILES: TerminalTile[] = [
   },
   {
     key: "stock-ops",
-    title: "Партии и перемещения",
-    subtitle: "Перемещение по ячейкам и списание",
-    path: "/stock?tab=lots",
+    title: "Перемещение и скан",
+    subtitle: "Быстрый терминал операций по QR",
+    path: "/film-operations?tab=issue",
     icon: <SwapOutlined style={{ fontSize: 36 }} />,
     accent: "#fa8c16",
     permissions: ["units.issue", "units.receive", "units.return", "part_units.manage"],
