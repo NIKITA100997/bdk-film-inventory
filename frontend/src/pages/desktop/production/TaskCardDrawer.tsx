@@ -326,6 +326,7 @@ function TaskCardBody({
               </span>
               {overLines > 0 && <UiBadge color="red">сверх задания: {overLines} {overLines === 1 ? "строка" : "строк"}</UiBadge>}
               <Progress percent={plan ? Math.round((done / plan) * 100) : 0} size="small" style={{ width: 120, margin: 0 }} />
+              {t.external_order_ref && <Tag color="default">Заказ клиента №{t.external_order_ref}</Tag>}
               {card?.order && (
                 <a
                   onClick={() => {
@@ -333,26 +334,26 @@ function TaskCardBody({
                     navigate(`/production-orders/${card.order!.id}`);
                   }}
                 >
-                  заказ №{card.order.id} «{card.order.name}» · {ORDER_STATUS_LABEL[card.order.status as keyof typeof ORDER_STATUS_LABEL] ?? card.order.status}
+                  задание производства №{card.order.id} «{card.order.name}» · {ORDER_STATUS_LABEL[card.order.status as keyof typeof ORDER_STATUS_LABEL] ?? card.order.status}
                 </a>
               )}
               {card?.order?.ship_date && <span>отгрузка {dayjs(card.order.ship_date).format("DD.MM")}</span>}
             </Space>
           </Space>
-          <Space>
-            <Button icon={<PrinterOutlined />} onClick={() => setJobCardOpen(true)}>
+          <Space wrap>
+            <Button icon={<PrinterOutlined />} style={{ minHeight: 44 }} onClick={() => setJobCardOpen(true)}>
               Наряд на станок
             </Button>
             {reportAllowed && (
-              <Button type="primary" onClick={() => setTab("report")}>
+              <Button type="primary" style={{ minHeight: 44 }} onClick={() => setTab("report")}>
                 Отчитаться
               </Button>
             )}
             <Dropdown trigger={["click"]} menu={{ items: moreItems, onClick: ({ key }) => onMore(key) }}>
-              <Button loading={completeMutation.isPending || archiveMutation.isPending}>Ещё ▾</Button>
+              <Button style={{ minHeight: 44 }} loading={completeMutation.isPending || archiveMutation.isPending}>Ещё ▾</Button>
             </Dropdown>
             {onClose && (
-              <Button type="text" onClick={onClose} aria-label="Закрыть">
+              <Button type="text" style={{ minHeight: 44, minWidth: 44 }} onClick={onClose} aria-label="Закрыть">
                 ✕
               </Button>
             )}
@@ -962,6 +963,7 @@ function LinesTab({
       </div>
       <ResponsiveTable<ProductionTaskLine>
         size="small"
+        cardBreakpoint="lg"
         rowKey="id"
         pagination={false}
         dataSource={t.lines}
@@ -1021,7 +1023,7 @@ function LinesTab({
                     <Button
                       size="small"
                       type="link"
-                      style={{ padding: "0 2px", fontSize: 11 }}
+                      style={{ minHeight: 44, padding: "0 8px", fontSize: 12 }}
                       onClick={() => setAdjustLine(l)}
                       title="Экспресс-сверка фактического остатка штрипсов в пуле участка"
                     >
@@ -1033,8 +1035,8 @@ function LinesTab({
               const rolls = rollChoices(l);
               if (!rolls.length) return <UiBadge color="warning">не выдан</UiBadge>;
               return rolls.map((u) => (
-                <UiBadge key={u.id} color={u.from ? "cyan" : "blue"} title={u.from ? `Общий рулон участка, выдан под «${u.from}»` : undefined}>
-                  №{u.id} · {Math.round(u.left * 10) / 10} м{u.from ? " · общий" : ""}
+                <UiBadge key={u.id} color={u.from ? "cyan" : "blue"} title={u.from ? `Выдан под строку «${u.from}»` : "Единица привязана к этой строке задания"}>
+                  №{u.id} · {u.width_mm} мм · осталось {Math.round(u.left * 10) / 10} м{u.from ? ` · строка ${u.from}` : " · эта строка"}
                 </UiBadge>
               ));
             },
@@ -1076,7 +1078,7 @@ function LinesTab({
                           type="primary"
                           ghost
                           loading={submittingLineId === l.id}
-                          style={{ height: 32, padding: "0 10px", fontWeight: 600, fontSize: 13 }}
+                          style={{ minHeight: 44, padding: "0 12px", fontWeight: 600, fontSize: 13 }}
                           title="Быстрая сдача всего остатка деталей"
                         >
                           Всё ({left})
@@ -1085,7 +1087,7 @@ function LinesTab({
                       <Button
                         size="middle"
                         onClick={() => setQuickLine(l)}
-                        style={{ height: 32, padding: "0 10px", fontSize: 13 }}
+                        style={{ minHeight: 44, padding: "0 12px", fontSize: 13 }}
                         title="Сдать часть партии или зафиксировать брак"
                       >
                         Сдать…
@@ -1097,7 +1099,7 @@ function LinesTab({
                       <Button
                         size="middle"
                         type="default"
-                        style={{ minWidth: 32, height: 30, padding: 0, fontWeight: 700 }}
+                        style={{ minWidth: 44, minHeight: 44, padding: 0, fontWeight: 700 }}
                         onClick={() => setQuickLine(l)}
                         title="Сдать сверх плана"
                       >
@@ -1115,7 +1117,7 @@ function LinesTab({
               const items = actionsOf(l);
               return items.length ? (
                 <Dropdown trigger={["click"]} menu={{ items, onClick: ({ key }) => onAction(key as LineAction, l) }}>
-                  <Button size="small" loading={issueClose.isPending || prodClose.isPending} aria-label="Действия со строкой">
+                  <Button size="middle" style={{ minWidth: 44, minHeight: 44 }} loading={issueClose.isPending || prodClose.isPending} aria-label="Действия со строкой">
                     ⋯
                   </Button>
                 </Dropdown>

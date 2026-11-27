@@ -18,6 +18,7 @@ export interface MonitorOrder {
   kind: string;
   has_lines?: boolean;
   lines_count?: number;
+  customer_orders?: { id: number; invoice_no: string | null; customer: string | null }[];
 }
 
 export interface MonitorRow {

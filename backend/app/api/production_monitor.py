@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.core.security import require_permission
 from app.db.session import get_db
 from app.models.areas import Area
+from app.models.customer_orders import CustomerOrder, CustomerOrderLine
 from app.models.dictionaries import Color, Material, Part, Thickness
 from app.models.items import Item, ItemType
 from app.models.production import PlanSlot, ProductionTask, ProductionTaskLine, ProductionTaskLineReport
@@ -36,6 +37,12 @@ class MonitorArea(BaseModel):
     per_day: float | None  # мощность участка в день (если задана) — сколько дней на остаток
 
 
+class MonitorCustomerOrder(BaseModel):
+    id: int
+    invoice_no: str | None
+    customer: str | None
+
+
 class MonitorOrder(BaseModel):
     id: int
     name: str
@@ -43,6 +50,7 @@ class MonitorOrder(BaseModel):
     kind: str
     has_lines: bool = True
     lines_count: int = 0
+    customer_orders: list[MonitorCustomerOrder] = Field(default_factory=list)
 
 
 class MonitorSource(BaseModel):
@@ -395,6 +403,27 @@ def production_monitor(include_done: bool = False, db: Session = Depends(get_db)
         .all()
     ) if order_ids else {}
 
+    customer_orders_by_production: dict[int, list[dict]] = defaultdict(list)
+    if order_ids:
+        linked_orders = (
+            db.query(
+                ProductionOrderLine.order_id,
+                CustomerOrder.id,
+                CustomerOrder.invoice_no,
+                CustomerOrder.customer,
+            )
+            .join(CustomerOrderLine, ProductionOrderLine.customer_order_line_id == CustomerOrderLine.id)
+            .join(CustomerOrder, CustomerOrder.id == CustomerOrderLine.order_id)
+            .filter(ProductionOrderLine.order_id.in_(order_ids))
+            .distinct()
+            .order_by(ProductionOrderLine.order_id, CustomerOrder.id)
+            .all()
+        )
+        for production_id, customer_id, invoice_no, customer in linked_orders:
+            customer_orders_by_production[production_id].append(
+                {"id": customer_id, "invoice_no": invoice_no, "customer": customer}
+            )
+
     orders = [
         MonitorOrder(
             id=o.id,
@@ -403,6 +432,7 @@ def production_monitor(include_done: bool = False, db: Session = Depends(get_db)
             kind=o.kind,
             has_lines=bool(orders_with_lines.get(o.id, 0) > 0),
             lines_count=orders_with_lines.get(o.id, 0),
+            customer_orders=customer_orders_by_production.get(o.id, []),
         )
         for o in db.query(ProductionOrder).filter(ProductionOrder.id.in_(order_ids)).order_by(ProductionOrder.ship_date, ProductionOrder.id)
     ] if order_ids else []

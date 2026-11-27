@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Button, Modal, Result, Skeleton, Space, Typography } from "antd";
+import { Button, Drawer, Result, Skeleton, Space, Typography } from "antd";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { getProductionOrder, type ProductionOrder, type OrderTask } from "../../../api/productionOrders";
@@ -8,10 +8,10 @@ import CreateTaskModal from "./CreateTaskModal";
 import OperationTaskModal from "./OperationTaskModal";
 import PfSupplyModal from "./PfSupplyModal";
 
-/** Карточка заказа в виде модального окна (Modal).
+/** Карточка заказа в виде боковой рабочей панели (Drawer).
  * Позволяет просматривать и управлять заказом (ход, отчёт, материалы, план,
- * история, запуск, редактирование строк) прямо по центру экрана из монитора
- * производства без перехода на отдельную страницу.
+ * история, запуск, редактирование строк) поверх монитора производства,
+ * сохраняя ширину для таблиц и контекст исходного экрана.
  * Моментально отображает данные благодаря кэшированию и пакетной выборке на бэкенде. */
 export default function OrderCardModal({
   orderId,
@@ -44,18 +44,16 @@ export default function OrderCardModal({
   const order = q.data;
 
   return (
-    <Modal
+    <Drawer
       open={orderId != null}
-      onCancel={onClose}
-      footer={null}
-      width={Math.min(1180, typeof window !== "undefined" ? window.innerWidth - 32 : 1180)}
-      centered
-      destroyOnClose={false}
+      onClose={onClose}
+      placement="right"
+      width={Math.min(1480, typeof window !== "undefined" ? window.innerWidth : 1480)}
+      destroyOnHidden={false}
       styles={{
         body: {
-          maxHeight: "calc(100vh - 110px)",
           overflowY: "auto",
-          padding: "12px 16px",
+          padding: 12,
         },
       }}
     >
@@ -140,6 +138,6 @@ export default function OrderCardModal({
           )}
         </Space>
       )}
-    </Modal>
+    </Drawer>
   );
 }

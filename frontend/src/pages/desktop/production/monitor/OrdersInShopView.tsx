@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Button, Card, Empty, Progress, Space, Table, Tabs, Tag, Tooltip, Typography, theme } from "antd";
+import { Button, Card, Drawer, Empty, Progress, Space, Tabs, Tag, Tooltip, Typography, theme } from "antd";
 import { ApartmentOutlined, CheckCircleOutlined, ClockCircleOutlined, ExclamationCircleOutlined, ExportOutlined, PrinterOutlined, WarningOutlined } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
 import dayjs from "dayjs";
@@ -27,6 +27,7 @@ export interface OrderMilestone {
 export interface OrderInShopSummary {
   orderId: number;
   orderName: string;
+  customerOrders: NonNullable<MonitorOrder["customer_orders"]>;
   kind: string;
   shipDate: string | null;
   launchDate: string | null;
@@ -168,7 +169,7 @@ function ExpandedOrderTasks({
     }
     onPrintTasks({
       tasks: Array.from(tasksMap.values()),
-      title: `Наряды заказа №${order.orderId} «${order.orderName}»`,
+      title: `Наряды задания производства №${order.orderId} «${order.orderName}»`,
     });
   };
 
@@ -177,8 +178,13 @@ function ExpandedOrderTasks({
       {/* Верхняя панель управления заказом прямо из таблицы */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
         <Space wrap size={8} style={{ alignItems: "center" }}>
+          {order.customerOrders.map((customerOrder) => (
+            <UiBadge key={customerOrder.id} color="purple">
+              Клиент {customerOrder.customer || "—"} · счёт {customerOrder.invoice_no || `№${customerOrder.id}`}
+            </UiBadge>
+          ))}
           <Typography.Text strong style={{ fontSize: 13 }}>
-            Заказ №{order.orderId} «{order.orderName}»
+            Задание производства №{order.orderId} «{order.orderName}»
           </Typography.Text>
           {order.kind === "stock" && <UiBadge color="green">на склад</UiBadge>}
           {order.shipDate && (
@@ -188,20 +194,21 @@ function ExpandedOrderTasks({
           )}
           {onOpenOrder && (
             <Button
-              size="small"
+              size="middle"
               type="primary"
               ghost
+              style={{ minHeight: 44 }}
               icon={<ExportOutlined />}
               onClick={() => onOpenOrder(order.orderId)}
-              title="Открыть карточку заказа со всеми вкладками (Ход, Отчёт, Материалы, План, История)"
+              title="Открыть карточку задания производства со всеми вкладками (Ход, Отчёт, Материалы, План, История)"
             >
-              Полная карточка заказа ↗
+              Карточка производства ↗
             </Button>
           )}
         </Space>
 
         <Space wrap size={6}>
-          <Button size="small" icon={<PrinterOutlined />} onClick={handlePrint}>
+          <Button size="middle" style={{ minHeight: 44 }} icon={<PrinterOutlined />} onClick={handlePrint}>
             Печать нарядов
           </Button>
         </Space>
@@ -217,12 +224,14 @@ function ExpandedOrderTasks({
             key: "tasks",
             label: `📋 Задания цеха (${sortedRows.length})`,
             children: (
-              <Table<MonitorRow>
+              <ResponsiveTable<MonitorRow>
+                cardBreakpoint="xl"
+                cardTitleColumn="Позиция / Деталь"
                 size="small"
                 rowKey="task_line_id"
                 dataSource={sortedRows}
                 pagination={false}
-                scroll={{ x: 1040 }}
+                scroll={{ x: 1210 }}
                 columns={[
                   {
                     title: "Этап",
@@ -330,14 +339,24 @@ function ExpandedOrderTasks({
                   },
                   {
                     title: "Плёнка",
-                    width: 80,
+                    width: 170,
                     render: (_, r) => {
-                      if (!r.film && !r.film_status) return "—";
+                      const label = r.film || [r.mat_name, r.color_name, r.thickness_mm != null ? `${r.thickness_mm} мм` : null].filter(Boolean).join(" · ");
+                      if (!label && !r.film_status) return "—";
+                      let status: React.ReactNode = null;
                       if (r.film_status === "issued" || r.film_status === "covered" || r.film_status === "site_stock") {
-                        return <Tag color="green" style={{ fontSize: 10, padding: "0 4px", margin: 0 }}>выдана</Tag>;
+                        status = <Tag color="green" style={{ margin: 0 }}>обеспечена</Tag>;
+                      } else if (r.film_status === "partial") {
+                        status = <Tag color="orange" style={{ margin: 0 }}>частично</Tag>;
+                      } else if (r.film_status === "none") {
+                        status = <Tag color="red" style={{ margin: 0 }}>не выдана</Tag>;
                       }
-                      if (r.film_status === "partial") return <Tag color="orange" style={{ fontSize: 10, padding: "0 4px", margin: 0 }}>частично</Tag>;
-                      return <Tag color="red" style={{ fontSize: 10, padding: "0 4px", margin: 0 }}>не выдана</Tag>;
+                      return (
+                        <Space direction="vertical" size={4}>
+                          {label && <Typography.Text>{label}</Typography.Text>}
+                          {status}
+                        </Space>
+                      );
                     },
                   },
                   {
@@ -347,8 +366,8 @@ function ExpandedOrderTasks({
                       r.quick && leftOf(r) >= 0 ? (
                         <QuickReport row={r} compact />
                       ) : (
-                        <Button size="small" onClick={() => onOpenTask(r.task_id)}>
-                          Задание №{r.task_id}
+                        <Button size="middle" style={{ minHeight: 44 }} onClick={() => onOpenTask(r.task_id)}>
+                          Открыть задание №{r.task_id}
                         </Button>
                       ),
                   },
@@ -360,9 +379,11 @@ function ExpandedOrderTasks({
             ? [
                 {
                   key: "lines",
-                  label: `🚪 Позиции заказа (${lines.length})`,
+                  label: `🚪 Позиции задания производства (${lines.length})`,
                   children: (
-                    <Table<LineRec>
+                    <ResponsiveTable<LineRec>
+                      cardBreakpoint="xl"
+                      cardTitleColumn="Серия / Модель"
                       size="small"
                       rowKey="key"
                       dataSource={lines}
@@ -455,6 +476,7 @@ export default function OrdersInShopView({
   const navigate = useNavigate();
   const areaNameMap = useMemo(() => new Map(areas.map((a) => [a.code, a.name])), [areas]);
   const orderMap = useMemo(() => new Map(orders.map((o) => [o.id, o])), [orders]);
+  const [detailsOrder, setDetailsOrder] = useState<OrderInShopSummary | null>(null);
 
   // Сбор позиций заказа и операций
   const { lines } = useMemo(() => buildLines(rows, orders, areas), [rows, orders, areas]);
@@ -698,6 +720,7 @@ export default function OrdersInShopView({
       result.push({
         orderId,
         orderName: o?.name ?? `№${orderId}`,
+        customerOrders: o?.customer_orders ?? [],
         kind: o?.kind ?? "regular",
         shipDate,
         launchDate: orderRows.find((r) => r.launch_date)?.launch_date ?? null,
@@ -771,7 +794,7 @@ export default function OrdersInShopView({
     }
     onPrintTasks({
       tasks: Array.from(tasksMap.values()),
-      title: `Наряды заказа №${order.orderId} «${order.orderName}»`,
+      title: `Наряды задания производства №${order.orderId} «${order.orderName}»`,
     });
   };
 
@@ -839,29 +862,28 @@ export default function OrdersInShopView({
       ) : (
         <ResponsiveTable<OrderInShopSummary>
           tableKey="monitor-orders-shop"
+          cardBreakpoint="xl"
+          cardTitleColumn="Задание производства / заказ клиента"
           size="small"
           rowKey="orderId"
           dataSource={displayedOrders}
-        pagination={{ pageSize: 20 }}
-        scroll={{ x: 930 }}
-        expandable={{
-          expandedRowRender: (record) => (
-            <ExpandedOrderTasks
-              order={record}
-              lines={linesByOrder.get(record.orderId) ?? []}
-              areaNameMap={areaNameMap}
-              onOpenTask={onOpenTask}
-              onOpenOrder={onOpenOrder}
-              onPrintTasks={onPrintTasks}
-            />
-          ),
-        }}
-        columns={[
+          pagination={{ pageSize: 20 }}
+          scroll={{ x: 1120 }}
+          columns={[
           {
-            title: "Заказ и счета",
-            width: 200,
+            title: "Задание производства / заказ клиента",
+            width: 260,
             render: (_, o) => (
-              <div style={{ maxWidth: 195 }}>
+              <div style={{ maxWidth: 255 }}>
+                {o.customerOrders.length > 0 && (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 4 }}>
+                    {o.customerOrders.map((customerOrder) => (
+                      <UiBadge key={customerOrder.id} color="purple" title={customerOrder.customer ?? undefined}>
+                        {customerOrder.invoice_no || `Клиент №${customerOrder.id}`}
+                      </UiBadge>
+                    ))}
+                  </div>
+                )}
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <a
                     onClick={(e) => {
@@ -870,13 +892,13 @@ export default function OrdersInShopView({
                       else navigate(`/production-orders/${o.orderId}`);
                     }}
                     style={{ fontWeight: 600, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "pointer" }}
-                    title={`Заказ №${o.orderId} «${o.orderName}» — открыть карточку`}
+                    title={`Задание производства №${o.orderId} «${o.orderName}» — открыть карточку`}
                   >
-                    №{o.orderId} «{o.orderName}»
+                    ЗП №{o.orderId} «{o.orderName}»
                   </a>
                   {o.kind === "stock" && <UiBadge color="green">склад</UiBadge>}
                 </div>
-                {o.invoices.length > 0 && (
+                {o.customerOrders.length === 0 && o.invoices.length > 0 && (
                   <div style={{ fontSize: 11, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={`Счета: ${o.invoices.join(", ")}`}>
                     Счета:{" "}
                     {o.invoices.map((inv) => (
@@ -963,7 +985,7 @@ export default function OrdersInShopView({
             },
           },
           {
-            title: "Вехи заказа",
+            title: "Этапы производства",
             width: 260,
             render: (_, o) => (
               <div style={{ display: "flex", flexWrap: "wrap", gap: 3, maxWidth: 260 }}>
@@ -1033,13 +1055,24 @@ export default function OrdersInShopView({
           },
           {
             title: "",
-            width: 85,
+            width: 195,
             align: "right",
             render: (_, o) => (
-              <Space size={2}>
+              <Space wrap size={4}>
+                <Button
+                  size="middle"
+                  style={{ minHeight: 44 }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setDetailsOrder(o);
+                  }}
+                >
+                  Задания участков
+                </Button>
                 <Tooltip title="Печать нарядов заказа">
                   <Button
-                    size="small"
+                    size="middle"
+                    style={{ minWidth: 44, minHeight: 44 }}
                     icon={<PrinterOutlined />}
                     onClick={(e) => {
                       e.stopPropagation();
@@ -1049,25 +1082,44 @@ export default function OrdersInShopView({
                 </Tooltip>
                 <Tooltip title="Открыть полную карточку заказа">
                   <Button
-                    size="small"
+                    size="middle"
                     type="primary"
                     ghost
-                    style={{ padding: "0 6px", fontSize: 11 }}
+                    style={{ minHeight: 44 }}
                     onClick={(e) => {
                       e.stopPropagation();
                       if (onOpenOrder) onOpenOrder(o.orderId);
                       else navigate(`/production-orders/${o.orderId}`);
                     }}
                   >
-                    Заказ ↗
+                    Карточка ↗
                   </Button>
                 </Tooltip>
               </Space>
             ),
           },
-        ]}
-      />
+          ]}
+        />
       )}
+      <Drawer
+        open={detailsOrder != null}
+        onClose={() => setDetailsOrder(null)}
+        title={detailsOrder ? `Задание производства №${detailsOrder.orderId} · задания участков` : null}
+        width={Math.min(1120, typeof window !== "undefined" ? window.innerWidth : 1120)}
+        destroyOnHidden
+        styles={{ body: { padding: 12 } }}
+      >
+        {detailsOrder && (
+          <ExpandedOrderTasks
+            order={detailsOrder}
+            lines={linesByOrder.get(detailsOrder.orderId) ?? []}
+            areaNameMap={areaNameMap}
+            onOpenTask={onOpenTask}
+            onOpenOrder={onOpenOrder}
+            onPrintTasks={onPrintTasks}
+          />
+        )}
+      </Drawer>
     </Space>
   );
 }

@@ -526,13 +526,14 @@ export interface SectionItem {
   key: string;
   label: string;
   sub?: string;
+  meta?: string;
   mark?: string;
   /** заголовок группы — показывается над первым пунктом группы */
   group?: string;
   children: ReactNode;
 }
 
-export function SectionsView({ items, initial }: { items: SectionItem[]; initial?: string }) {
+export function SectionsView({ items, initial, placement = "side" }: { items: SectionItem[]; initial?: string; placement?: "side" | "top" }) {
   const [sel, setSel] = useState(initial ?? items[0]?.key);
   const cur = items.find((i) => i.key === sel) ?? items[0];
   const wide = Grid.useBreakpoint().lg ?? true;
@@ -574,6 +575,56 @@ export function SectionsView({ items, initial }: { items: SectionItem[]; initial
     const last = groups[groups.length - 1];
     if (last && last.group === i.group) last.items.push(i);
     else groups.push({ group: i.group, items: [i] });
+  }
+  if (placement === "top") {
+    return (
+      <Space orientation="vertical" size="small" style={{ width: "100%" }}>
+        <div
+          role="tablist"
+          aria-orientation="horizontal"
+          style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 190px), 1fr))", gap: 8, width: "100%" }}
+        >
+          {items.map((i) => {
+            const on = i.key === cur?.key;
+            return (
+              <button
+                key={i.key}
+                type="button"
+                role="tab"
+                aria-selected={on}
+                onClick={() => setSel(i.key)}
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "flex-start",
+                  justifyContent: "center",
+                  gap: 4,
+                  minHeight: 62,
+                  minWidth: 0,
+                  padding: "9px 12px",
+                  borderRadius: 8,
+                  border: `2px solid ${on ? "#C97A2B" : "#D9D9D9"}`,
+                  background: on ? "rgba(201,122,43,.12)" : "#fff",
+                  boxShadow: on ? "0 1px 4px rgba(201,122,43,.18)" : undefined,
+                  cursor: "pointer",
+                  textAlign: "left",
+                  font: "inherit",
+                  color: "inherit",
+                }}
+              >
+                <span style={{ fontWeight: on ? 700 : 600, lineHeight: 1.2, overflowWrap: "anywhere" }}>{i.label}</span>
+                <span style={{ fontSize: 12, color: on ? "#8C4B10" : "#6B7280", lineHeight: 1.2 }}>
+                  {i.meta ?? i.sub?.split(" · ")[0] ?? "—"}
+                </span>
+                {i.mark && <Tag color="orange" style={{ margin: 0 }}>{i.mark}</Tag>}
+              </button>
+            );
+          })}
+        </div>
+        {cur?.sub && <Typography.Text type="secondary">{cur.sub}</Typography.Text>}
+        <div style={{ width: "100%", minWidth: 0 }}>{cur?.children}</div>
+      </Space>
+    );
   }
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "flex-start" }}>

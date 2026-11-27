@@ -219,17 +219,19 @@ export default function OrderFlow({
       key: "all",
       label: "Все строки",
       sub: `${order.lines.length} строк · готово ${totalDone} из ${totalQty}`,
+      meta: "Сводка заказа",
       children: matrix,
     }]),
     ...(order.tasks ?? []).map((t) => ({
       key: `t${t.id}`,
       group: "Задания участкам",
       label: t.area_name ?? t.area,
-      sub: `№${t.id}${t.site_name ? ` [${t.site_name}]` : ""} · ${period(t.plan_from ?? null, t.plan_to ?? null)} · ${t.done}/${t.planned}`,
+      sub: `№${t.id} · ${period(t.plan_from ?? null, t.plan_to ?? null)} · ${t.done}/${t.planned}`,
+      meta: t.site_name ?? "Площадка не указана",
       mark: t.for_task_id ? "п/ф" : !t.is_active ? "архив" : t.done >= t.planned && t.planned > 0 ? "готово" : undefined,
       children: taskTable(t),
     })),
   ];
   // заказ без строк (задание на окутку, заготовки) — сразу первое задание
-  return <SectionsView items={items} initial={items[0]?.key ?? "all"} />;
+  return <SectionsView items={items} initial={items[0]?.key ?? "all"} placement="top" />;
 }

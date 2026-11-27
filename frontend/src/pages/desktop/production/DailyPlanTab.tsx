@@ -5,7 +5,7 @@ import { useState } from "react";
 import NextStep, { scrollToId } from "../../../components/NextStep";
 import ShopFloorHelpButton from "../../../components/ShopFloorHelpButton";
 import { apiClient } from "../../../api/client";
-import { Card, Collapse, Space, Typography, DatePicker, Button, Empty, Select, Progress, Table, Segmented } from "antd";
+import { Card, Collapse, Space, Typography, DatePicker, Button, Empty, Select, Progress, Segmented } from "antd";
 import dayjs from "dayjs";
 import { useQuery } from "@tanstack/react-query";
 import ResponsiveTable from "../../../components/ResponsiveTable";
@@ -14,18 +14,14 @@ import { lineFilmLabel, listActiveProductionTasks, type ProductionTask, type Pro
 import { areaRequiresRoll, listAreas } from "../../../api/areas";
 import { useAuth } from "../../../auth/AuthContext";
 import ReportModal from "./ReportModal";
-import FastReportPanel from "./fastReport/FastReportPanel";
 import TaskCardDrawer from "./TaskCardDrawer";
 import { listPlanSlots } from "../../../api/planning";
 import { hasPerm } from "../../../auth/permissions";
 
-/** План на день (мастер) — суточный срез уже распределённых по линиям
- * строк заданий, с отчётом о браке прямо из строки. Раздел про
- * отключение распределения по дням (Area.requires_daily_plan=false,
- * пилот: окутка царговых) — для такого участка распределений никогда
- * не будет, эта таблица для него пуста и бессмысленна, поэтому вместо
- * неё показываем быстрый отчёт FastReportPanel (плитки/таблица; прежняя
- * панель набора позиций — вид «Как раньше»).
+/** Рабочее место мастера участка. В основном режиме показаны открытые
+ * задания, а отчёт и сведения о материале доступны в карточке задания.
+ * Планировщик смены остаётся отдельным режимом для участков, где он
+ * используется. Для просмотра от лица админа доступен выбор участка.
  * Раздел про просмотр от лица админа/без своего участка — у реального
  * мастера участок закреплён на аккаунте (user.area), но администратор
  * обычно логинится без привязки к участку и иначе никогда не увидит
@@ -42,8 +38,6 @@ export default function DailyPlanTab() {
   const [viewArea, setViewArea] = useState<string | null>(null);
   const [smartBatchingOpen, setSmartBatchingOpen] = useState(false);
   const [stationMode, setStationMode] = useState<"touch" | "plan">("touch");
-  // Карточка задания — из панели ввода быстрого отчёта («Задание №… →»).
-  const [reportCardTask, setReportCardTask] = useState<number | null>(null);
   const [reportTarget, setReportTarget] = useState<
     { taskId: number; line: ProductionTaskLine; assignmentId: number; area: string } | null
   >(null);
@@ -78,7 +72,7 @@ export default function DailyPlanTab() {
             value={stationMode}
             onChange={(v) => setStationMode(v as "touch" | "plan")}
             options={[
-              { value: "touch", label: "⚡ Сенсорный терминал сдачи" },
+              { value: "touch", label: "Задания участка" },
               { value: "plan", label: "📅 Суточный план" },
             ]}
           />
@@ -102,19 +96,12 @@ export default function DailyPlanTab() {
     return (
       <Space orientation="vertical" size="large" style={{ width: "100%" }}>
         {areaPicker}
-        <MasterNextStep area={effectiveArea} openLines={openLines} mode="report" />
-        {/* Главное у станка — отчёт; план и задания участка — ниже, по запросу. */}
-        <div id="area-report">
-          <FastReportPanel area={effectiveArea} allowLegacy onOpenTask={setReportCardTask} />
+        <MasterNextStep area={effectiveArea} openLines={openLines} mode="tasks" />
+        <div id="area-tasks">
+          <AreaTasks tasks={tasks} canManage={canManage} canReport={canReport} />
         </div>
-        <TaskCardDrawer taskId={reportCardTask} onClose={() => setReportCardTask(null)} canManage={canManage} canReport={canReport} />
         <Collapse
           items={[
-            {
-              key: "tasks",
-              label: `Задания участка · ${tasks.length}`,
-              children: <AreaTasks tasks={tasks} canManage={canManage} canReport={canReport} />,
-            },
             { key: "plan", label: "План на день из планировщика", children: <PlanForDay area={effectiveArea} canReport={canReport} /> },
           ]}
         />
@@ -401,7 +388,9 @@ function AreaTasks({ tasks, canManage, canReport }: { tasks: ProductionTask[]; c
       {rows.length === 0 ? (
         <Typography.Text type="secondary">Открытых заданий нет.</Typography.Text>
       ) : (
-        <Table
+        <ResponsiveTable
+          cardBreakpoint="lg"
+          cardTitleColumn="Задание"
           size="small"
           rowKey={(r) => r.t.id}
           pagination={rows.length > 10 ? { pageSize: 10, size: "small" } : false}
@@ -412,19 +401,14 @@ function AreaTasks({ tasks, canManage, canReport }: { tasks: ProductionTask[]; c
             {
               title: "Задание",
               render: (_, r) => (
-                <Space size={4} wrap>
-                  <a>
-                    №{r.t.id} «{r.t.name ?? r.t.product_model_name ?? "Задание"}»
-                  </a>
-                  {r.t.for_task_id && (
-                    <span style={{ fontSize: 11, background: "#f0f5ff", color: "#1d39c4", border: "1px solid #adc6ff", borderRadius: 3, padding: "0 4px" }}>
-                      п/ф под №{r.t.for_task_id}
-                    </span>
-                  )}
+                <Space direction="vertical" size={4}>
+                  <Typography.Text strong>№{r.t.id} · {r.t.name ?? r.t.product_model_name ?? "Задание"}</Typography.Text>
+                  {r.t.for_task_id && <UiBadge color="purple">п/ф для задания №{r.t.for_task_id}</UiBadge>}
+                  {r.t.external_order_ref && <Typography.Text type="secondary">Заказ клиента №{r.t.external_order_ref}</Typography.Text>}
                 </Space>
               ),
             },
-            { title: "Заказ", render: (_, r) => (r.t.production_order_id ? `№${r.t.production_order_id}` : "—") },
+            { title: "Задание производства", render: (_, r) => (r.t.production_order_name ?? (r.t.production_order_id ? `№${r.t.production_order_id}` : "—")) },
             {
               title: "Сделано",
               render: (_, r) => (
@@ -435,6 +419,10 @@ function AreaTasks({ tasks, canManage, canReport }: { tasks: ProductionTask[]; c
                   </span>
                 </Space>
               ),
+            },
+            {
+              title: "",
+              render: (_, r) => <Button type="primary" ghost style={{ minHeight: 44 }} onClick={() => setCardTask(r.t.id)}>Открыть задание</Button>,
             },
           ]}
         />
@@ -458,7 +446,7 @@ function MasterNextStep({
 }: {
   area: string;
   openLines: number;
-  mode: "report" | "daily";
+  mode: "tasks" | "daily";
   isToday?: boolean;
   planned?: number;
   unreported?: number;
@@ -479,16 +467,16 @@ function MasterNextStep({
         tone="warn"
         title={`Отстаёте: ${mine.length} строк, ${Math.round(qty)} шт — с ${dayjs(since).format("DD.MM")}`}
         text="План прошедших дней не сделан. Сделали, но не отчитались — сдайте отчёт; не успели — скажите начальнику цеха, он перенесёт."
-        actionLabel="К отчёту ↓"
-        onAction={() => scrollToId(mode === "report" ? "area-report" : "area-daily")}
+        actionLabel={mode === "tasks" ? "К заданиям ↓" : "К отчёту ↓"}
+        onAction={() => scrollToId(mode === "tasks" ? "area-tasks" : "area-daily")}
       />
     );
   }
   if (!openLines) return <NextStep tone="done" title="Открытых заданий нет" text="Новые появятся, когда начальник цеха запустит заказ." />;
-  if (mode === "report")
+  if (mode === "tasks")
     return (
-      <NextStep tone="action" title={`Отчитайтесь о сделанном — открытых строк ${openLines}`} text="Выберите строку, впишите годные и брак — отчёт сразу спишет плёнку и п/ф."
-        actionLabel="К отчёту ↓" onAction={() => scrollToId("area-report")} />
+      <NextStep tone="action" title={`Открытые строки: ${openLines}`} text="Откройте задание участка, чтобы увидеть строки заказа, материал и выданный штрипс. Отчёт вносится в карточке задания."
+        actionLabel="К заданиям ↓" onAction={() => scrollToId("area-tasks")} />
     );
   if (!isToday) return null;
   if (!planned)
