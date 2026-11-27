@@ -10,6 +10,7 @@ import {
   Spin,
   Alert,
 } from "antd";
+import { useState } from "react";
 import { ExportOutlined } from "@ant-design/icons";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
@@ -21,6 +22,7 @@ import {
 } from "../../../api/customerOrders";
 import { PRIORITY_COLOR, PRIORITY_LABEL } from "../../../api/productionOrders";
 import OrderTimelineCard from "./OrderTimelineCard";
+import AssembleOrderModal from "./AssembleOrderModal";
 
 interface Props {
   orderId: number | null;
@@ -30,6 +32,7 @@ interface Props {
 
 export default function CustomerOrderDrawer({ orderId, open, onClose }: Props) {
   const navigate = useNavigate();
+  const [assembleOpen, setAssembleOpen] = useState(false);
 
   const query = useQuery({
     queryKey: ["customer-order", orderId],
@@ -65,16 +68,19 @@ export default function CustomerOrderDrawer({ orderId, open, onClose }: Props) {
       }
       extra={
         orderId ? (
-          <Button
-            type="primary"
-            icon={<ExportOutlined />}
-            onClick={() => {
-              onClose();
-              navigate(`/customer-orders/${orderId}`);
-            }}
-          >
-            Вся страница ↗
-          </Button>
+          <Space>
+            <Button onClick={() => setAssembleOpen(true)}>Собрать заказ</Button>
+            <Button
+              type="primary"
+              icon={<ExportOutlined />}
+              onClick={() => {
+                onClose();
+                navigate(`/customer-orders/${orderId}`);
+              }}
+            >
+              Вся страница ↗
+            </Button>
+          </Space>
         ) : null
       }
       placement="right"
@@ -304,6 +310,7 @@ export default function CustomerOrderDrawer({ orderId, open, onClose }: Props) {
           )}
         </Space>
       )}
+      <AssembleOrderModal orderId={orderId} open={assembleOpen} onClose={() => setAssembleOpen(false)} />
     </Drawer>
   );
 }

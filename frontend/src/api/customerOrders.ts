@@ -398,3 +398,42 @@ export const bulkCleanupCustomerOrders = async (payload: {
   comment?: string;
 }): Promise<BulkCleanupResult> =>
   (await apiClient.post<BulkCleanupResult>(`${base}/bulk-cleanup`, payload)).data;
+
+
+export interface AssembleDonor {
+  production_order_line_id: number;
+  production_order_id: number;
+  invoice_no: string | null;
+  customer: string | null;
+  quantity: number;
+  packed_qty: number;
+}
+
+export interface AssembleLine {
+  customer_order_line_id: number;
+  item_id: number | null;
+  item_name: string | null;
+  needed_qty: number;
+  linked_qty: number;
+  deficit: number;
+  donors: AssembleDonor[];
+}
+
+export interface AssemblePreviewOut {
+  order_id: number;
+  invoice_no: string;
+  lines: AssembleLine[];
+}
+
+export async function getAssemblePreview(orderId: number): Promise<AssemblePreviewOut> {
+  const { data } = await apiClient.get<AssemblePreviewOut>(`/customer-orders/${orderId}/assemble-preview`);
+  return data;
+}
+
+export async function assembleOrder(
+  orderId: number,
+  transfers: Array<{ production_order_line_id: number; target_customer_order_line_id: number }>,
+): Promise<{ ok: boolean; moved: number }> {
+  const { data } = await apiClient.post<{ ok: boolean; moved: number }>(`/customer-orders/${orderId}/assemble`, { transfers });
+  return data;
+}
