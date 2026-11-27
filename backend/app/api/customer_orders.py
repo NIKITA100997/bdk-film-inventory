@@ -1339,10 +1339,11 @@ class AssembleRequest(BaseModel):
 def assemble_preview(
     order_id: int,
     db: Session = Depends(get_db),
-    _: User = Depends(manage_customer_orders),
+    _: User = Depends(require_permission("customer_orders.view")),
 ):
     """Предпросмотр сбора заказа: показывает дефицит по строкам счёта и доступные
     одинаковые позиции из других заказов/запусков для перераспределения."""
+    from sqlalchemy import func
     from app.models.production_orders import ProductionOrderLine
     from app.models.finished_goods import FgMove
 
@@ -1428,7 +1429,7 @@ def assemble_order(
     order_id: int,
     payload: AssembleRequest,
     db: Session = Depends(get_db),
-    _: User = Depends(manage_customer_orders),
+    _: User = Depends(require_permission("customer_orders.manage")),
 ):
     """Перераспределяет выбранные строки запуска (ProductionOrderLine) на текущий счёт
     с переносом всех выполненных этапов и движений ГП."""
