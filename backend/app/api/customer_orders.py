@@ -1324,3 +1324,133 @@ def set_line_options(order_id: int, line_id: int, payload: LineOptionsIn, db: Se
         pol.options = ln.options
     db.commit()
     return _out(db, co)
+
+
+class AssembleTransferItem(BaseModel):
+    production_order_line_id: int
+    target_customer_order_line_id: int
+
+
+class AssembleRequest(BaseModel):
+    transfers: list[AssembleTransferItem]
+
+
+@router.get("/{order_id}/assemble-preview")
+def assemble_preview(
+    order_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """Предпросмотр сбора заказа: показывает дефицит по строкам счёта и доступные
+    одинаковые позиции из других заказов/запусков для перераспределения."""
+    from app.models.production_orders import ProductionOrderLine
+    from app.models.finished_goods import FgMove
+
+    co = db.get(CustomerOrder, order_id)
+    if not co:
+        raise HTTPException(status_code=404, detail="Заказ клиента не найден")
+
+    lines = (
+        db.query(CustomerOrderLine)
+        .filter(CustomerOrderLine.order_id == order_id)
+        .order_by(CustomerOrderLine.sort_order, CustomerOrderLine.id)
+        .all()
+    )
+    result = []
+    for col in lines:
+        item = db.get(Item, col.item_id) if col.item_id else None
+        linked_pols = (
+            db.query(ProductionOrderLine)
+            .filter(ProductionOrderLine.customer_order_line_id == col.id)
+            .all()
+        )
+        linked_qty = sum(float(p.quantity or 0) for p in linked_pols)
+        needed_qty = float(col.quantity or 0)
+        deficit = max(0.0, needed_qty - linked_qty)
+
+        donors = []
+        if deficit > 0 and col.item_id:
+            donor_pols = (
+                db.query(ProductionOrderLine)
+                .filter(
+                    ProductionOrderLine.item_id == col.item_id,
+                    ProductionOrderLine.customer_order_line_id != col.id,
+                )
+                .all()
+            )
+            for dp in donor_pols:
+                donor_col = (
+                    db.get(CustomerOrderLine, dp.customer_order_line_id)
+                    if dp.customer_order_line_id
+                    else None
+                )
+                donor_co = (
+                    db.get(CustomerOrder, donor_col.order_id)
+                    if donor_col
+                    else None
+                )
+                packed_qty = float(
+                    db.query(func.coalesce(func.sum(FgMove.quantity), 0.0))
+                    .filter(
+                        FgMove.order_line_id == dp.id,
+                        FgMove.kind == "receipt",
+                    )
+                    .scalar()
+                    or 0.0
+                )
+                donors.append(
+                    {
+                        "production_order_line_id": dp.id,
+                        "production_order_id": dp.order_id,
+                        "invoice_no": donor_co.invoice_no if donor_co else dp.invoice_no,
+                        "customer": donor_co.customer if donor_co else None,
+                        "quantity": float(dp.quantity or 0),
+                        "packed_qty": packed_qty,
+                    }
+                )
+
+        result.append(
+            {
+                "customer_order_line_id": col.id,
+                "item_id": col.item_id,
+                "item_name": item.name if item else col.source_text,
+                "needed_qty": needed_qty,
+                "linked_qty": linked_qty,
+                "deficit": deficit,
+                "donors": donors,
+            }
+        )
+    return {"order_id": co.id, "invoice_no": co.invoice_no, "lines": result}
+
+
+@router.post("/{order_id}/assemble")
+def assemble_order(
+    order_id: int,
+    payload: AssembleRequest,
+    db: Session = Depends(get_db),
+    _: User = Depends(manage_customer_orders),
+):
+    """Перераспределяет выбранные строки запуска (ProductionOrderLine) на текущий счёт
+    с переносом всех выполненных этапов и движений ГП."""
+    from app.models.production_orders import ProductionOrderLine
+    from app.models.finished_goods import FgMove
+
+    co = db.get(CustomerOrder, order_id)
+    if not co:
+        raise HTTPException(status_code=404, detail="Заказ клиента не найден")
+
+    moved = 0
+    for tr in payload.transfers:
+        pol = db.get(ProductionOrderLine, tr.production_order_line_id)
+        target_col = db.get(CustomerOrderLine, tr.target_customer_order_line_id)
+        if not pol or not target_col or target_col.order_id != co.id:
+            continue
+        pol.customer_order_line_id = target_col.id
+        pol.invoice_no = co.invoice_no
+        db.query(FgMove).filter(FgMove.order_line_id == pol.id).update(
+            {"invoice_no": co.invoice_no}, synchronize_session=False
+        )
+        moved += 1
+
+    db.commit()
+    return {"ok": True, "moved": moved}
