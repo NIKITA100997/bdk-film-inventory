@@ -199,6 +199,8 @@ def production_monitor(include_done: bool = False, db: Session = Depends(get_db)
     from app.api.production import _line_deficit_aggregates
     deficit_aggregates = _line_deficit_aggregates(db, [ln.id for ln, _ in lines])
 
+    from app.services.type_rules import item_chars_cached
+
     rows: list[MonitorRow] = []
     order_ids: set[int] = set()
     area_codes: set[str] = set()
@@ -228,7 +230,6 @@ def production_monitor(include_done: bool = False, db: Session = Depends(get_db)
         if ln.material_id:
             film = f"{mats.get(ln.material_id, '')} {cols.get(ln.color_id, '')} {ths.get(ln.thickness_id, 0):g}".strip()
         from app.services.line_groups import line_group
-        from app.services.type_rules import item_chars_cached
 
         grp = line_group(db, ln, t.area, [] if ln.part_id else (item_chars_cached(db, ol.item_id) if ol else []))
         g, d, last = agg.get(ln.id, (0.0, 0.0, None))
