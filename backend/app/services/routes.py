@@ -46,7 +46,9 @@ def _stage_in_use(db: Session, stage_id: int) -> bool:
     )
 
 
-def apply_route(db: Session, part: Part | Item, steps: list[RouteStep]) -> None:
+def apply_route(
+    db: Session, part: Part | Item, steps: list[RouteStep], *, preserve_in_use: bool = False
+) -> None:
     """Привести маршрут детали — или любой позиции номенклатуры (пункт 3
     единой модели) — к списку steps (без commit). Для позиции, за которой
     стоит деталь п/ф, вызывайте с деталью: новые этапы получат и деталь, и
@@ -70,20 +72,27 @@ def apply_route(db: Session, part: Part | Item, steps: list[RouteStep]) -> None:
             pool.remove(existing[i])
             matched[i] = existing[i]
 
-    for stage in pool:
+    kept_in_use: list[PartStage] = []
+    for stage in list(pool):
         if _stage_in_use(db, stage.id):
-            raise RouteInUseError(
-                f"«{part.name}»: этап «{stage.name}» нельзя убрать — на нём есть партии или история. "
-                "Можно поменять ему участок или порядок, но не удалять."
-            )
+            if preserve_in_use:
+                pool.remove(stage)
+                kept_in_use.append(stage)
+            else:
+                raise RouteInUseError(
+                    f"«{part.name}»: этап «{stage.name}» нельзя убрать — на нём есть партии или история. "
+                    "Можно поменять ему участок или порядок, но не удалять."
+                )
 
     for stage in pool:
         part.stages.remove(stage)
         db.delete(stage)
     # Уникальность (part_id, sequence_order): сначала уводим оставшиеся
     # этапы на временные отрицательные номера, потом ставим итоговые.
-    for i, stage in enumerate(s for s in matched if s is not None):
+    for i, stage in enumerate([s for s in matched if s is not None] + kept_in_use):
         stage.sequence_order = -(i + 1)
+    for j, stage in enumerate(kept_in_use, start=len(steps) + 1):
+        stage.sequence_order = j
     db.flush()
     for i, (step, stage) in enumerate(zip(steps, matched), start=1):
         if stage is None:
@@ -102,4 +111,6 @@ def apply_route(db: Session, part: Part | Item, steps: list[RouteStep]) -> None:
                 stage.role = step.role
             if step.piece_rate != KEEP:
                 stage.piece_rate = step.piece_rate
+    for j, stage in enumerate(kept_in_use, start=len(steps) + 1):
+        stage.sequence_order = j
     db.flush()

@@ -332,7 +332,7 @@ def apply(db: Session, item: Item, _depth: int = 0) -> RulesResult:
                     template = db.get(Part, rule.route_part_id)
                     if template is not None:
                         # Новая деталь — этапов ещё нет, убирать нечего.
-                        apply_route(db, part, [RouteStep(code=s.code, name=s.name, area=s.area, role=s.role, piece_rate=s.piece_rate) for s in template.stages])
+                        apply_route(db, part, [RouteStep(code=s.code, name=s.name, area=s.area, role=s.role, piece_rate=s.piece_rate) for s in template.stages], preserve_in_use=True)
                         part.area = template.area
                 db.flush()
                 comp_item_id = part.item_id
