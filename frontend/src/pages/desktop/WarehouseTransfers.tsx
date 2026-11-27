@@ -88,7 +88,7 @@ export function HubTab() {
             pagination={false}
             dataSource={t.lines}
             columns={linesColumns((l) => (
-              <Button size="small" danger onClick={() => removeMutation.mutate({ transferId: t.id, lineId: l.id })}>
+              <Button danger onClick={() => removeMutation.mutate({ transferId: t.id, lineId: l.id })}>
                 ✕
               </Button>
             ))}
@@ -153,7 +153,7 @@ export function InTransitTab() {
                 l.received_at ? (
                   <Tag color="green">Принято</Tag>
                 ) : (
-                  <Button size="small" type="primary" onClick={() => receiveMutation.mutate({ transferId: t.id, lineId: l.id })}>
+                  <Button type="primary" onClick={() => receiveMutation.mutate({ transferId: t.id, lineId: l.id })}>
                     Принять
                   </Button>
                 ),
