@@ -5,6 +5,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import CreateTaskModal from "./production/CreateTaskModal";
 import OperationTaskModal from "./production/OperationTaskModal";
 import PfSupplyModal from "./production/PfSupplyModal";
+import ScheduleImportModal from "./production/ScheduleImportModal";
 import DailyPlanTab from "./production/DailyPlanTab";
 import { useAuth } from "../../auth/AuthContext";
 import { lazyPage } from "../../utils/lazyPage";
@@ -81,6 +82,7 @@ export default function ProductionTasks() {
   }, [params, navigate, user?.area]);
 
   const [newOpen, setNewOpen] = useState(wantNew);
+  const [launchImportOpen, setLaunchImportOpen] = useState(false);
   const tab = params.get("tab");
 
   const tabItems = [
@@ -180,6 +182,9 @@ export default function ProductionTasks() {
               <Button type="primary">Новое задание участку ▾</Button>
             </Dropdown>
           )}
+          {canManage && (
+            <Button onClick={() => setLaunchImportOpen(true)}>Создать запуск (из файла)</Button>
+          )}
         </Space>
       </div>
 
@@ -202,6 +207,16 @@ export default function ProductionTasks() {
         open={creating === "ops"}
         onClose={() => setCreating(null)}
       />
+      {launchImportOpen && (
+        <ScheduleImportModal
+          launchOnly
+          onClose={() => setLaunchImportOpen(false)}
+          onCreated={(order) => {
+            setLaunchImportOpen(false);
+            navigate(`/production-orders/${order.id}`);
+          }}
+        />
+      )}
       {supply && (
         <PfSupplyModal
           taskId={supply.id}
