@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Button, InputNumber, Select, Space, Tag, message } from "antd";
+import { Button, Checkbox, InputNumber, Select, Space, Tag, message } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createTaskLineReportsBatch } from "../../../../api/production";
 import type { MonitorRow } from "../../../../api/productionMonitor";
@@ -21,6 +21,7 @@ export default function QuickReport({ row, compact = false, onDone }: { row: Mon
   const [good, setGood] = useState<number | null>(null);
   const [defect, setDefect] = useState<number | null>(null);
   const [reason, setReason] = useState<string | undefined>();
+  const [closePrev, setClosePrev] = useState(false);
   const [opKey, setOpKey] = useState(newOpKey);
   const rq = useQuery({ queryKey: ["write-off-reasons", "production"], queryFn: () => listWriteOffReasons("production"), staleTime: 300_000 });
   const reasons = useMemo(() => (rq.data ?? []).filter((r) => r.is_active !== false), [rq.data]);
@@ -30,7 +31,7 @@ export default function QuickReport({ row, compact = false, onDone }: { row: Mon
         createTaskLineReportsBatch(
           row.task_id,
           row.task_line_id,
-          [{ assignment_id: null, good_pieces: good ?? 0, defect_pieces: defect ?? 0, defect_reason: (defect ?? 0) > 0 ? reason : undefined, confirmed }],
+          [{ assignment_id: null, good_pieces: good ?? 0, defect_pieces: defect ?? 0, defect_reason: (defect ?? 0) > 0 ? reason : undefined, confirmed, close_previous_stages: closePrev }],
           opKey,
         ),
       ),
@@ -107,6 +108,11 @@ export default function QuickReport({ row, compact = false, onDone }: { row: Mon
         <Button size="small" type="link" style={{ padding: 0 }} onClick={() => setGood(left)}>
           всё оставшееся — {left} шт
         </Button>
+      )}
+      {(row.op_seq ?? 0) > 1 && (
+        <Checkbox checked={closePrev} onChange={(e) => setClosePrev(e.target.checked)} style={{ fontSize: 12 }}>
+          Закрыть предыдущие этапы (если не отмечены)
+        </Checkbox>
       )}
     </Space>
   );

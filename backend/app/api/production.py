@@ -2271,6 +2271,8 @@ def create_task_line_report(
     _stamp_report_line(db, task_id, payload, reports)
     _stamp_report_film(payload, reports)
     db.flush()
+    if payload.close_previous_stages and float(payload.good_pieces or 0) > 0:
+        _close_previous_stages(db, line_id, float(payload.good_pieces), user)
     _close_used_up(db, payload, user)
     from app.services.part_units import close_exhausted
 
@@ -2282,6 +2284,70 @@ def create_task_line_report(
 
     publish_event("tasks", {"task_id": task_id, "line_id": line_id})
     return reports[-1]
+
+
+def _line_op_seq(db: Session, line: ProductionTaskLine, area: str | None) -> int:
+    if line.part_stage_id:
+        stage = db.get(PartStage, line.part_stage_id)
+        if stage is not None:
+            return int(stage.sequence_order or 0)
+    from app.api.production_monitor import _area_op_sequence
+    return int(_area_op_sequence(area or "") or 0)
+
+
+def _close_previous_stages(
+    db: Session, line_id: int, good_pieces: float, user: User
+) -> None:
+    """Дозакрывает предыдущие незакрытые этапы по той же строке заказа (order_line_id),
+    если мастер отметил более поздний/конечный этап с подтверждением."""
+    line = db.get(ProductionTaskLine, line_id)
+    if not line or not line.order_line_id or good_pieces <= 0:
+        return
+    task = db.get(ProductionTask, line.task_id)
+    if not task:
+        return
+    current_seq = _line_op_seq(db, line, task.area)
+    if current_seq <= 0:
+        return
+
+    prev_lines = (
+        db.query(ProductionTaskLine)
+        .filter(
+            ProductionTaskLine.order_line_id == line.order_line_id,
+            ProductionTaskLine.id != line.id,
+            ProductionTaskLine.is_closed.is_(False),
+        )
+        .all()
+    )
+    for prev_line in prev_lines:
+        prev_task = db.get(ProductionTask, prev_line.task_id)
+        prev_seq = _line_op_seq(db, prev_line, prev_task.area if prev_task else None)
+        if prev_seq >= current_seq or prev_seq <= 0:
+            continue
+        reported_good = float(
+            db.query(func.coalesce(func.sum(ProductionTaskLineReport.good_pieces), 0.0))
+            .filter(
+                ProductionTaskLineReport.task_line_id == prev_line.id,
+                ProductionTaskLineReport.counts_toward_line.is_(True),
+            )
+            .scalar()
+            or 0.0
+        )
+        target_qty = float(prev_line.quantity_pieces or 0.0)
+        missing = min(float(good_pieces), max(0.0, target_qty - reported_good))
+        if missing > 0:
+            db.add(
+                ProductionTaskLineReport(
+                    task_line_id=prev_line.id,
+                    good_pieces=missing,
+                    defect_pieces=0.0,
+                    reported_by=user.id,
+                    counts_toward_line=True,
+                    note="Автозакрытие при отметке последующего этапа",
+                )
+            )
+            if reported_good + missing >= target_qty:
+                prev_line.is_closed = True
 
 
 def _close_used_up(db: Session, payload: ProductionTaskLineReportCreate, user: User) -> None:
@@ -2383,6 +2449,8 @@ def create_task_line_reports_batch(
         _stamp_report_film(payload, built)
         reports.extend(built)
         db.flush()
+        if payload.close_previous_stages and float(payload.good_pieces or 0) > 0:
+            _close_previous_stages(db, line_id, float(payload.good_pieces), user)
         _close_used_up(db, payload, user)
     from app.services.part_units import close_exhausted
 

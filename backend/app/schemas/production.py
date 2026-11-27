@@ -258,6 +258,8 @@ class ProductionTaskLineReportCreate(BaseModel):
     # Подтверждено человеком (19.10): сверх плана больше чем на 10 % или
     # повтор того же отчёта за 2 минуты — сервер без этого флага переспросит.
     confirmed: bool = False
+    # Автоматически дозакрыть предыдущие незакрытые этапы по той же строке заказа.
+    close_previous_stages: bool = False
 
 
 class ProductionTaskLineReportOut(BaseModel):

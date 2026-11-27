@@ -250,6 +250,7 @@ export interface ProductionTaskLineReport {
 export interface ProductionTaskLineReportCreate {
   /** подтверждено человеком: сверх плана или повтор (19.10, utils/reportConfirm) */
   confirmed?: boolean;
+  close_previous_stages?: boolean;
   // Раздел про отключение распределения по дням — null для участка с
   // requires_daily_plan=false (backend это допускает только для него).
   assignment_id: number | null;
