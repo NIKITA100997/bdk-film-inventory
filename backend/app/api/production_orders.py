@@ -425,18 +425,23 @@ def _order_out(db: Session, order: ProductionOrder, comp_cache: dict | None = No
         )
     author = db.get(User, order.created_by)
     tasks = db.query(ProductionTask).filter(ProductionTask.production_order_id == order.id).order_by(ProductionTask.id).all()
+    linked_cos = _customer_orders_of(db, order)
     return OrderOut(
         id=order.id, name=order.name, ship_date=order.ship_date, note=order.note, status=order.status, kind=order.kind,
         category_id=order.category_id,
         category_name=(db.get(OrderCategory, order.category_id).name if order.category_id else None),
         created_by_name=(author.full_name or author.username) if author else "—", created_at=order.created_at,
         released_at=order.released_at, task_ids=[t.id for t in tasks], lines=out_lines,
-        customer_orders=_customer_orders_of(db, order),
-        ship_from=order.ship_from, ship_to=order.ship_to, request_status=order.request_status,
+        customer_orders=linked_cos,
+        ship_from=order.ship_from or min((c.ship_from for c in linked_cos if c.ship_from), default=None),
+        ship_to=order.ship_to or max((c.ship_to for c in linked_cos if c.ship_to), default=None),
+        request_status=order.request_status,
         request_comment=order.request_comment, submitted_at=order.submitted_at,
         submitted_by_name=_user_name(db, order.submitted_by), decided_by_name=_user_name(db, order.decided_by),
-        customer=order.customer, amount_rub=float(order.amount_rub) if order.amount_rub is not None else None,
-        priority=order.priority or 0, promised_ready=order.promised_ready,
+        customer=order.customer or (", ".join(dict.fromkeys(c.customer for c in linked_cos if c.customer)) or None),
+        amount_rub=float(order.amount_rub) if order.amount_rub is not None else None,
+        priority=order.priority or 0,
+        promised_ready=order.promised_ready or max((c.promised_ready for c in linked_cos if c.promised_ready), default=None),
         **_fact_fields(db, order),
         tasks=_tasks_out(db, tasks, area_names),
         **_plan_fields(db, order),
